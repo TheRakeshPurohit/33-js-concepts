@@ -76,8 +76,8 @@
               "concepts/primitives-objects",
               "concepts/type-coercion",
               "concepts/equality-operators",
-              "concepts/scope-and-closures",
-              "concepts/call-stack"
+              "concepts/call-stack",
+              "concepts/scope-and-closures"
             ]
           },
           {
