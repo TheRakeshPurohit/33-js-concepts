@@ -716,4 +716,98 @@ describe('Performance Observer', () => {
       expect(observerCreated).toBe(false)
     })
   })
+
+  describe('Deep Dive: navigator.sendBeacon()', () => {
+    // Source: docs/beyond/concepts/performance-observer.mdx
+    beforeEach(() => {
+      vi.stubGlobal('navigator', {
+        sendBeacon: vi.fn(() => true)
+      })
+      
+      // Mock Blob to track size accurately enough for the test
+      class MockBlob {
+        constructor(parts, options) {
+          this.parts = parts
+          this.options = options
+          // Calculate size roughly by string length for this test
+          this.size = parts.reduce((acc, part) => acc + (typeof part === 'string' ? part.length : 0), 0)
+        }
+      }
+      vi.stubGlobal('Blob', MockBlob)
+    })
+
+    afterEach(() => {
+      vi.unstubAllGlobals()
+    })
+
+    it('should respect the 64 KiB data size limitation and support Blob data type', () => {
+      let analyticsSent = false
+      const sendAnalytics = (metrics) => {
+        if (analyticsSent) return
+        
+        const data = JSON.stringify(metrics)
+        const payloadBlob = new Blob([data], { type: 'application/json' })
+        
+        if (payloadBlob.size < 65536) {
+          const success = navigator.sendBeacon('/analytics', payloadBlob)
+          if (success) {
+            analyticsSent = true
+          }
+        }
+      }
+
+      // Small payload
+      sendAnalytics({ lcp: 1200 })
+      expect(navigator.sendBeacon).toHaveBeenCalledTimes(1)
+      expect(analyticsSent).toBe(true)
+      
+      // Reset for large payload
+      analyticsSent = false
+      vi.clearAllMocks()
+      
+      // Large payload
+      const largeData = { payload: 'x'.repeat(70000) }
+      sendAnalytics(largeData)
+      expect(navigator.sendBeacon).not.toHaveBeenCalled()
+      expect(analyticsSent).toBe(false)
+    })
+
+    it('should use pagehide as a fallback event', () => {
+      const sendAnalytics = vi.fn()
+      
+      const handlers = {}
+      
+      const mockDocumentAddEventListener = (event, handler) => {
+        handlers[`document:${event}`] = handler
+      }
+      
+      const mockWindowAddEventListener = (event, handler) => {
+        handlers[`window:${event}`] = handler
+      }
+      
+      let visibilityState = 'visible'
+      
+      // Setup the event listeners from the documentation
+      mockDocumentAddEventListener('visibilitychange', () => {
+        if (visibilityState === 'hidden') {
+          sendAnalytics({ event: 'visibilitychange' })
+        }
+      })
+      
+      mockWindowAddEventListener('pagehide', () => {
+        sendAnalytics({ event: 'pagehide' })
+      })
+      
+      // Simulate visibilitychange
+      visibilityState = 'hidden'
+      if (handlers['document:visibilitychange']) handlers['document:visibilitychange']()
+      expect(sendAnalytics).toHaveBeenCalledWith({ event: 'visibilitychange' })
+      
+      // Simulate pagehide
+      if (handlers['window:pagehide']) handlers['window:pagehide']()
+      expect(sendAnalytics).toHaveBeenCalledWith({ event: 'pagehide' })
+      
+      expect(sendAnalytics).toHaveBeenCalledTimes(2)
+    })
+  })
 })

@@ -709,6 +709,60 @@ console.log('Pending entries:', pendingEntries)
 
 ---
 
+## Deep Dive: navigator.sendBeacon()
+
+When sending analytics data, `navigator.sendBeacon()` is the recommended approach over `fetch()`. However, there are a few important details to keep in mind for reliable data delivery:
+
+### 1. Data Size Limitation
+`sendBeacon()` is designed specifically for small amounts of data. The maximum allowed payload size is **64 KiB (65,536 bytes)**. If you attempt to send a larger payload, the browser will reject it and the method will return `false`.
+
+### 2. Supported Data Types
+The `data` parameter in `sendBeacon(url, data)` accepts several specific data types:
+- `String` (including JSON strings)
+- `Blob` or `File` (useful when you need to specify a `Content-Type` like `application/json`)
+- `ArrayBuffer` or `ArrayBufferView` (for binary data)
+- `FormData`
+- `URLSearchParams`
+
+### 3. Fallback Events
+While `visibilitychange` is the most reliable event to trigger analytics in modern browsers, some older browsers (particularly older versions of iOS Safari) have issues firing it reliably. In these cases, using the `pagehide` event as a fallback is recommended.
+
+```javascript
+// Robust reporting strategy
+function sendAnalytics(metrics) {
+  // Check if we already sent to avoid duplicates
+  if (document.analyticsSent) return
+  
+  const data = JSON.stringify(metrics)
+  
+  // Ensure payload is under 64 KiB limitation
+  const payloadBlob = new Blob([data], { type: 'application/json' })
+  if (payloadBlob.size < 65536) {
+    // We can send the Blob directly
+    const success = navigator.sendBeacon('/analytics', payloadBlob)
+    if (success) {
+      document.analyticsSent = true
+    }
+  } else {
+    console.warn('Analytics payload exceeds 64 KiB limit')
+  }
+}
+
+// Recommended modern event
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    sendAnalytics({ event: 'visibilitychange' })
+  }
+})
+
+// Fallback for older browsers (e.g., old iOS Safari)
+window.addEventListener('pagehide', () => {
+  sendAnalytics({ event: 'pagehide' })
+})
+```
+
+---
+
 ## Common Mistakes
 
 ### Mistake 1: Not Using Buffered
